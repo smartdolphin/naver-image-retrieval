@@ -6,6 +6,7 @@ from __future__ import print_function
 import os
 
 import cv2
+import h5py
 import argparse
 import pickle
 
@@ -19,7 +20,8 @@ from keras.layers import Dense, Dropout, Flatten, Activation
 from keras.layers import Conv2D, MaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
-from data_loader import train_data_loader
+from data_loader import triplet_train_data_loader
+from network import get_model
 
 
 def bind_model(model):
@@ -123,6 +125,28 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
+def get_sample_generator(ds, batch_size, hard=False, raise_stop_event=False):
+    left, limit = 0, ds['a'].shape[0]
+    while True:
+        right = min(left + batch_size, limit)
+
+        batch_inds = list(np.arange(left, right))
+        nagative_inds = []
+        for i in batch_inds:
+            _y = np.argmax(ds['y'], axis=1)[i]
+            mask = np.argmax(ds['y'], axis=1) == _y
+            nagative_inds.append(np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0])
+
+        X = [ds[t][left:right, :] for t in ['a', 'p']] + [ds['a'][nagative_inds]]
+        Y = ds['y'][left:right]
+        yield X, Y
+        left = right
+        if right == limit:
+            left = 0
+            if raise_stop_event:
+                raise StopIteration
+
+
 if __name__ == '__main__':
     args = argparse.ArgumentParser()
 
@@ -143,29 +167,7 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     """ Model """
-    model = Sequential()
-    model.add(Conv2D(32, (3, 3), padding='same', input_shape=input_shape))
-    model.add(Activation('relu'))
-    model.add(Conv2D(32, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
-
-    model.add(Conv2D(64, (3, 3), padding='same'))
-    model.add(Activation('relu'))
-    model.add(Conv2D(64, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
-
-    model.add(Flatten())
-    model.add(Dense(512))
-    model.add(Activation('relu'))
-    model.add(Dropout(0.5))
-    model.add(Dense(num_classes))
-    model.add(Activation('softmax'))
-    model.summary()
-
+    model = get_model('triplet', 224, num_classes)
     bind_model(model)
 
     if config.pause:
@@ -183,43 +185,60 @@ if __name__ == '__main__':
 
         """ Load data """
         print('dataset path', DATASET_PATH)
-        output_path = ['./img_list.pkl', './label_list.pkl']
+        output_path = './data.h5py'
         train_dataset_path = DATASET_PATH + '/train/train_data'
 
         if nsml.IS_ON_NSML:
             # Caching file
-            nsml.cache(train_data_loader, data_path=train_dataset_path, img_size=input_shape[:2],
-                       output_path=output_path)
+            if os.path.exists(output_path) is False:
+                nsml.cache(triplet_train_data_loader,
+                           data_path=train_dataset_path,
+                           img_size=input_shape[:2],
+                           output_path=output_path,
+                           num_classes=num_classes,
+                           train_ratio=1.0)
         else:
-            # local에서 실험할경우 dataset의 local-path 를 입력해주세요.
-            train_data_loader(train_dataset_path, input_shape[:2], output_path=output_path)
+            # local에서 실험할경우 dataset의 local-path 를 입력해주세요
+            if os.path.exists(output_path) is False:
+                triplet_train_data_loader(train_dataset_path,
+                                          input_shape[:2],
+                                          output_path=output_path,
+                                          num_classes=num_classes,
+                                          train_ratio=1.0)
+        data = h5py.File(output_path, 'r')
+        train = data['train']
+        dev = data['dev']
+        total_train_samples = train['y'].shape[0]
+        train_gen = get_sample_generator(train, batch_size=batch_size)
+        steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
 
-        with open(output_path[0], 'rb') as img_f:
-            img_list = pickle.load(img_f)
-        with open(output_path[1], 'rb') as label_f:
-            label_list = pickle.load(label_f)
+        total_dev_samples = dev['y'].shape[0]
+        dev_gen = get_sample_generator(dev, batch_size=batch_size)
+        validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
 
-        x_train = np.asarray(img_list)
-        labels = np.asarray(label_list)
-        y_train = keras.utils.to_categorical(labels, num_classes=num_classes)
-        x_train = x_train.astype('float32')
-        x_train /= 255
-        print(len(labels), 'train samples')
+        train_size = train['a'].shape[0]
+        a_train = train['a'].value.reshape(train_size, 224, 224, 3)
+        a_train /= 255
+        p_train = train['p'].value.reshape(train_size, 224, 224, 3)
+        p_train /= 255
+        print(train_size, 'train samples')
 
         """ Callback """
         monitor = 'acc'
-        reduce_lr = ReduceLROnPlateau(monitor=monitor, patience=3)
+        callbacks = [ReduceLROnPlateau(monitor=monitor, patience=3)]
+
 
         """ Training loop """
         for epoch in range(nb_epoch):
-            res = model.fit(x_train, y_train,
-                            batch_size=batch_size,
-                            initial_epoch=epoch,
-                            epochs=epoch + 1,
-                            callbacks=[reduce_lr],
-                            verbose=1,
-                            shuffle=True)
+            res = model.fit_generator(generator=train_gen,
+                                      steps_per_epoch=steps_per_epoch,
+                                      epochs=epoch+1,
+                                      validation_data=dev_gen,
+                                      validation_steps=validation_steps,
+                                      shuffle=True,
+                                      callbacks=callbacks)
             print(res.history)
             train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
             nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
             nsml.save(epoch)
+        data.close()
