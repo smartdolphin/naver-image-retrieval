@@ -9,7 +9,6 @@ import h5py
 import tqdm
 import pickle
 import itertools
-import keras
 import numpy as np
 
 
@@ -111,13 +110,13 @@ def create_dataset(g, size, img_size, num_classes):
     shape = (size, img_size * img_size * 3)
     g.create_dataset('a', shape, dtype=np.float32)
     g.create_dataset('p', shape, dtype=np.float32)
-    g.create_dataset('y', (size, num_classes), dtype=np.int32)
+    g.create_dataset('y', (size,), dtype=np.int32)
 
 
 def copy_dataset(dst, src, num_classes):
     dst['a'][:,:] = src['a'][:]
     dst['p'][:,:] = src['p'][:]
-    dst['y'][:,:] = keras.utils.to_categorical(src['y'], num_classes=num_classes)
+    dst['y'][:] = src['y'][:]
 
 
 # nsml test_data_loader

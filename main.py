@@ -133,8 +133,8 @@ def get_sample_generator(ds, batch_size, hard=False, raise_stop_event=False):
         batch_inds = list(np.arange(left, right))
         nagative_inds = []
         for i in batch_inds:
-            _y = np.argmax(ds['y'], axis=1)[i]
-            mask = np.argmax(ds['y'], axis=1) == _y
+            _y = ds['y'][i]
+            mask = ds['y'] == _y
             nagative_inds.append(np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0])
 
         X = [ds[t][left:right, :] for t in ['a', 'p']] + [ds['a'][nagative_inds]]
