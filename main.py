@@ -190,13 +190,12 @@ if __name__ == '__main__':
 
         if nsml.IS_ON_NSML:
             # Caching file
-            if os.path.exists(output_path) is False:
-                nsml.cache(triplet_train_data_loader,
-                           data_path=train_dataset_path,
-                           img_size=input_shape[:2],
-                           output_path=output_path,
-                           num_classes=num_classes,
-                           train_ratio=1.0)
+            nsml.cache(triplet_train_data_loader,
+                       data_path=train_dataset_path,
+                       img_size=input_shape[:2],
+                       output_path=output_path,
+                       num_classes=num_classes,
+                       train_ratio=1.0)
         else:
             # local에서 실험할경우 dataset의 local-path 를 입력해주세요
             if os.path.exists(output_path) is False:
