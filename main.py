@@ -138,7 +138,7 @@ def get_sample_generator(ds, batch_size, hard=False, raise_stop_event=False):
             nagative_inds.append(np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0])
 
         X = [ds[t][left:right, :] for t in ['a', 'p']] + [ds['a'][nagative_inds]]
-        Y = ds['y'][left:right]
+        Y = np.zeros((len(batch_inds), 128*3))
         yield X, Y
         left = right
         if right == limit:
@@ -152,7 +152,7 @@ if __name__ == '__main__':
 
     # hyperparameters
     args.add_argument('--epochs', type=int, default=5)
-    args.add_argument('--batch_size', type=int, default=128)
+    args.add_argument('--batch_size', type=int, default=16)
 
     # DONOTCHANGE: They are reserved for nsml
     args.add_argument('--mode', type=str, default='train', help='submit일때 해당값이 test로 설정됩니다.')
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         """ Load data """
         print('dataset path', DATASET_PATH)
         output_path = './data.h5py'
-        train_dataset_path = DATASET_PATH + '/train/train_data'
+        train_dataset_path = os.path.join(DATASET_PATH, 'train/train_data')
 
         if nsml.IS_ON_NSML:
             # Caching file
@@ -205,16 +205,10 @@ if __name__ == '__main__':
                                           output_path=output_path,
                                           num_classes=num_classes,
                                           train_ratio=1.0)
+
         data = h5py.File(output_path, 'r')
         train = data['train']
         dev = data['dev']
-        total_train_samples = train['y'].shape[0]
-        train_gen = get_sample_generator(train, batch_size=batch_size)
-        steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
-
-        total_dev_samples = dev['y'].shape[0]
-        dev_gen = get_sample_generator(dev, batch_size=batch_size)
-        validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
 
         train_size = train['a'].shape[0]
         a_train = train['a'].value.reshape(train_size, 224, 224, 3)
@@ -222,6 +216,24 @@ if __name__ == '__main__':
         p_train = train['p'].value.reshape(train_size, 224, 224, 3)
         p_train /= 255
         print(train_size, 'train samples')
+
+        total_train_samples = train['y'].shape[0]
+        train_gen = get_sample_generator({'a': a_train, 'p': p_train, 'y': train['y']},
+                                         batch_size=batch_size)
+        steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
+
+        dev_size = dev['a'].shape[0]
+        a_dev = dev['a'].value.reshape(dev_size, 224, 224, 3)
+        a_dev /= 255
+        p_dev = dev['p'].value.reshape(dev_size, 224, 224, 3)
+        p_dev /= 255
+        print(dev_size, 'dev samples')
+
+        total_dev_samples = dev['y'].shape[0]
+        dev_gen = get_sample_generator({'a': a_dev, 'p': p_dev, 'y': dev['y']},
+                                       batch_size=batch_size)
+        validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
+
 
         """ Callback """
         monitor = 'acc'
@@ -232,9 +244,9 @@ if __name__ == '__main__':
         for epoch in range(nb_epoch):
             res = model.fit_generator(generator=train_gen,
                                       steps_per_epoch=steps_per_epoch,
-                                      epochs=epoch+1,
-                                      validation_data=dev_gen,
-                                      validation_steps=validation_steps,
+                                      epochs=1,
+                                      validation_data=dev_gen if dev_size > 0 else None,
+                                      validation_steps=validation_steps if dev_size > 0 else None,
                                       shuffle=True,
                                       callbacks=callbacks)
             print(res.history)
