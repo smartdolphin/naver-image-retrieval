@@ -128,7 +128,7 @@ def preprocess(queries, db):
 
 def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
-    data_inds = list(itertools.permutations(np.arange(len(ds['y'])), 2))
+    data_inds = list(itertools.combinations(np.arange(len(ds['y'])), 2))
     y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
 
     while True:
@@ -227,7 +227,7 @@ if __name__ == '__main__':
         a_train /= 255
         print(train_size, 'train samples')
 
-        total_train_samples = len(list(itertools.permutations(train['y'].value, 2)))
+        total_train_samples = len(list(itertools.combinations(train['y'].value, 2)))
         train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
                                          batch_size=batch_size,
                                          img_shape=input_shape)
@@ -238,7 +238,7 @@ if __name__ == '__main__':
         a_dev /= 255
         print(dev_size, 'dev samples')
 
-        total_dev_samples = len(list(itertools.permutations(dev['y'].value, 2)))
+        total_dev_samples = len(list(itertools.combinations(dev['y'].value, 2)))
         dev_gen = get_sample_generator({'a': a_dev, 'y': dev['y']},
                                        batch_size=batch_size,
                                        img_shape=input_shape)
