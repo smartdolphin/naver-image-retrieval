@@ -128,7 +128,11 @@ def preprocess(queries, db):
 
 def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
-    data_inds = list(itertools.combinations(np.arange(len(ds['y'])), 2))
+    data_inds = []
+    for label in set(ds['y'].value):
+        y_set = ds['y'][ds['y'].value == label]
+        for a_idx, p_idx in itertools.combinations(y_set, 2):
+            data_inds.append((a_idx, p_idx))
     y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
 
     while True:
@@ -225,9 +229,13 @@ if __name__ == '__main__':
         train_size = train['a'].shape[0]
         a_train = train['a'].value.reshape(train_size, 224, 224, 3)
         a_train /= 255
-        print(train_size, 'train samples')
 
-        total_train_samples = len(list(itertools.combinations(train['y'].value, 2)))
+        total_train_samples = 0
+        for label in set(train['y'].value):
+            y_set = train['y'][train['y'].value == label]
+            total_train_samples += len(list(itertools.combinations(y_set, 2)))
+        print(train_size, 'train samples > ', total_train_samples)
+
         train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
                                          batch_size=batch_size,
                                          img_shape=input_shape)
@@ -236,9 +244,13 @@ if __name__ == '__main__':
         dev_size = dev['a'].shape[0]
         a_dev = dev['a'].value.reshape(dev_size, 224, 224, 3)
         a_dev /= 255
-        print(dev_size, 'dev samples')
 
-        total_dev_samples = len(list(itertools.combinations(dev['y'].value, 2)))
+        total_dev_samples = 0
+        for label in set(dev['y'].value):
+            y_set = dev['y'][dev['y'].value == label]
+            total_dev_samples += len(list(itertools.combinations(y_set, 2)))
+        print(dev_size, 'dev samples > ', total_dev_samples)
+
         dev_gen = get_sample_generator({'a': a_dev, 'y': dev['y']},
                                        batch_size=batch_size,
                                        img_shape=input_shape)
