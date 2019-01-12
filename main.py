@@ -10,6 +10,7 @@ import h5py
 import argparse
 import pickle
 
+import itertools
 import nsml
 import numpy as np
 
@@ -20,7 +21,7 @@ from keras.layers import Dense, Dropout, Flatten, Activation
 from keras.layers import Conv2D, MaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
-from data_loader import triplet_train_data_loader
+from data_loader import triplet_data_loader
 from network import get_model
 
 
@@ -125,19 +126,31 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
-def get_sample_generator(ds, batch_size, hard=False, raise_stop_event=False):
+def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
+    data_inds = list(itertools.permutations(np.arange(len(ds['y'])), 2))
+    y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
+
     while True:
         right = min(left + batch_size, limit)
 
         batch_inds = list(np.arange(left, right))
-        nagative_inds = []
-        for i in batch_inds:
-            _y = ds['y'][i]
-            mask = ds['y'] == _y
-            nagative_inds.append(np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0])
+        a = np.zeros((len(batch_inds), img_shape[0], img_shape[1], img_shape[2]))
+        p = np.zeros((len(batch_inds), img_shape[0], img_shape[1], img_shape[2]))
+        n = np.zeros((len(batch_inds), img_shape[0], img_shape[1], img_shape[2]))
 
-        X = [ds[t][left:right, :] for t in ['a', 'p']] + [ds['a'][nagative_inds]]
+        for i, batch_idx in enumerate(batch_inds):
+            a_idx, p_idx = data_inds[batch_idx]
+            a[i] = ds['a'][a_idx]
+            p[i] = ds['a'][p_idx]
+
+        for i, batch_idx in enumerate(batch_inds):
+            _y = y_inds[batch_idx]
+            mask = np.array(y_inds) == _y
+            negative_idx = np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0]
+            n[i] = ds['a'][data_inds[negative_idx][0]]
+
+        X = [a] + [p] + [n]
         Y = np.zeros((len(batch_inds), 128*3))
         yield X, Y
         left = right
@@ -190,7 +203,7 @@ if __name__ == '__main__':
 
         if nsml.IS_ON_NSML:
             # Caching file
-            nsml.cache(triplet_train_data_loader,
+            nsml.cache(triplet_data_loader,
                        data_path=train_dataset_path,
                        img_size=input_shape[:2],
                        output_path=output_path,
@@ -199,11 +212,11 @@ if __name__ == '__main__':
         else:
             # local에서 실험할경우 dataset의 local-path 를 입력해주세요
             if os.path.exists(output_path) is False:
-                triplet_train_data_loader(train_dataset_path,
-                                          input_shape[:2],
-                                          output_path=output_path,
-                                          num_classes=num_classes,
-                                          train_ratio=1.0)
+                triplet_data_loader(train_dataset_path,
+                                    input_shape[:2],
+                                    output_path=output_path,
+                                    num_classes=num_classes,
+                                    train_ratio=1.0)
 
         data = h5py.File(output_path, 'r')
         train = data['train']
@@ -212,25 +225,23 @@ if __name__ == '__main__':
         train_size = train['a'].shape[0]
         a_train = train['a'].value.reshape(train_size, 224, 224, 3)
         a_train /= 255
-        p_train = train['p'].value.reshape(train_size, 224, 224, 3)
-        p_train /= 255
         print(train_size, 'train samples')
 
-        total_train_samples = train['y'].shape[0]
-        train_gen = get_sample_generator({'a': a_train, 'p': p_train, 'y': train['y']},
-                                         batch_size=batch_size)
+        total_train_samples = len(list(itertools.permutations(train['y'].value, 2)))
+        train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
+                                         batch_size=batch_size,
+                                         img_shape=input_shape)
         steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
 
         dev_size = dev['a'].shape[0]
         a_dev = dev['a'].value.reshape(dev_size, 224, 224, 3)
         a_dev /= 255
-        p_dev = dev['p'].value.reshape(dev_size, 224, 224, 3)
-        p_dev /= 255
         print(dev_size, 'dev samples')
 
-        total_dev_samples = dev['y'].shape[0]
-        dev_gen = get_sample_generator({'a': a_dev, 'p': p_dev, 'y': dev['y']},
-                                       batch_size=batch_size)
+        total_dev_samples = len(list(itertools.permutations(dev['y'].value, 2)))
+        dev_gen = get_sample_generator({'a': a_dev, 'y': dev['y']},
+                                       batch_size=batch_size,
+                                       img_shape=input_shape)
         validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
 
 
