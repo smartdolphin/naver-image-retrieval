@@ -3,8 +3,8 @@ import keras.backend as K
 from keras.models import Model
 from keras.layers import Dense, Lambda, Input, concatenate, Flatten
 from keras.applications.resnet50 import ResNet50
-#from misc import Option
-#opt = Option('./config.json')
+from misc import Option, wrapped_partial
+opt = Option('./config.json')
 
 
 def get_model(target_model, img_size, num_classes):
@@ -16,14 +16,14 @@ def get_model(target_model, img_size, num_classes):
 
 
 class Triplet:
-    def __init__(self, alpha=0.05):
-        self.alpha = alpha
-        self.embd_dim = 128
+    def __init__(self):
+        self.alpha = opt.alpha
+        self.embd_dim = opt.embd_dim
 
-    def triplet_loss(self, y_true, y_pred, alpha=0.2):
-        anchor = y_pred[:,0:self.embd_dim]
-        positive = y_pred[:,self.embd_dim:self.embd_dim*2]
-        negative = y_pred[:,self.embd_dim*2:self.embd_dim*3]
+    def triplet_loss(self, y_true, y_pred, embd_dim=128, alpha=0.2):
+        anchor = y_pred[:,0:embd_dim]
+        positive = y_pred[:,embd_dim:embd_dim*2]
+        negative = y_pred[:,embd_dim*2:embd_dim*3]
 
         # distance between the anchor and the positive
         pos_dist = K.sum(K.square(anchor - positive), axis=1)
@@ -55,7 +55,11 @@ class Triplet:
         merge_vec = concatenate([a_emb, p_emb, n_emb], axis=-1)
 
         model = Model(inputs=[a, p, n], outputs=merge_vec)
-        optm = keras.optimizers.Nadam(1e-3)
-        model.compile(loss=self.triplet_loss, optimizer=optm, metrics=['accuracy'])
+        optm = keras.optimizers.Nadam(opt.lr)
+        model.compile(loss=wrapped_partial(self.triplet_loss,
+                                           embd_dim=self.embd_dim,
+                                           alpha=self.alpha),
+                      optimizer=optm,
+                      metrics=['accuracy'])
         model.summary()
         return model
