@@ -133,6 +133,7 @@ def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
         y_set = ds['y'][ds['y'].value == label]
         for a_idx, p_idx in itertools.combinations(y_set, 2):
             data_inds.append((a_idx, p_idx))
+    np.random.shuffle(data_inds)
     y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
 
     while True:
