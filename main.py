@@ -194,12 +194,6 @@ if __name__ == '__main__':
     if config.mode == 'train':
         bTrainmode = True
 
-        """ Initiate RMSprop optimizer """
-        opt = keras.optimizers.rmsprop(lr=0.00045, decay=1e-6)
-        model.compile(loss='categorical_crossentropy',
-                      optimizer=opt,
-                      metrics=['accuracy'])
-
         """ Load data """
         print('dataset path', DATASET_PATH)
         output_path = './data.h5py'

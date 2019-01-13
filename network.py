@@ -56,6 +56,6 @@ class Triplet:
 
         model = Model(inputs=[a, p, n], outputs=merge_vec)
         optm = keras.optimizers.Nadam(1e-3)
-        model.compile(loss=self.triplet_loss, optimizer=optm, metrics=None)
+        model.compile(loss=self.triplet_loss, optimizer=optm, metrics=['accuracy'])
         model.summary()
         return model
