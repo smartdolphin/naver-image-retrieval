@@ -56,22 +56,14 @@ def bind_model(model):
         reference_img = reference_img.astype('float32')
         reference_img /= 255
 
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        get_feature_layer = K.function([model.layers[-2].get_input_at(0)] + [K.learning_phase()],
+                                       [model.layers[-2].get_output_at(0)])
 
         print('inference start')
 
         # inference
         query_vecs = get_feature_layer([query_img, 0])[0]
-
-        # caching db output, db inference
-        db_output = './db_infer.pkl'
-        if os.path.exists(db_output):
-            with open(db_output, 'rb') as f:
-                reference_vecs = pickle.load(f)
-        else:
-            reference_vecs = get_feature_layer([reference_img, 0])[0]
-            with open(db_output, 'wb') as f:
-                pickle.dump(reference_vecs, f)
+        reference_vecs = get_feature_layer([reference_img, 0])[0]
 
         # l2 normalization
         query_vecs = l2_normalize(query_vecs)
@@ -131,7 +123,7 @@ def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
     data_inds = []
     for label in set(ds['y'].value):
         y_set = ds['y'][ds['y'].value == label]
-        for a_idx, p_idx in itertools.combinations(y_set, 2):
+        for a_idx, p_idx in itertools.permutations(y_set, 2):
             data_inds.append((a_idx, p_idx))
     np.random.shuffle(data_inds)
     y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
@@ -228,7 +220,7 @@ if __name__ == '__main__':
         total_train_samples = 0
         for label in set(train['y'].value):
             y_set = train['y'][train['y'].value == label]
-            total_train_samples += len(list(itertools.combinations(y_set, 2)))
+            total_train_samples += len(list(itertools.permutations(y_set, 2)))
         print(train_size, 'train samples > ', total_train_samples)
 
         train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
@@ -243,14 +235,13 @@ if __name__ == '__main__':
         total_dev_samples = 0
         for label in set(dev['y'].value):
             y_set = dev['y'][dev['y'].value == label]
-            total_dev_samples += len(list(itertools.combinations(y_set, 2)))
+            total_dev_samples += len(list(itertools.permutations(y_set, 2)))
         print(dev_size, 'dev samples > ', total_dev_samples)
 
         dev_gen = get_sample_generator({'a': a_dev, 'y': dev['y']},
                                        batch_size=batch_size,
                                        img_shape=input_shape)
         validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
-
 
         """ Callback """
         monitor = 'acc'
