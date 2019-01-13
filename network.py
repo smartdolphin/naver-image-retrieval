@@ -36,6 +36,20 @@ class Triplet:
         loss = K.maximum(basic_loss, 0.0)
         return loss
 
+    def count_nonzero(self, y_true, y_pred):
+        """
+        Custom metric
+        Returns count of nonzero embeddings
+        """
+        return(tf.count_nonzero(y_pred))
+
+    def check_nonzero(self, y_true, y_pred):
+        """
+        Custom metric
+        Returns sum of all embeddings
+        """
+        return(K.sum(y_pred))
+
     def get_model(self, img_size, num_classes):
         shape = (img_size, img_size, 3)
         a = Input(shape=shape)
@@ -60,6 +74,6 @@ class Triplet:
                                            embd_dim=self.embd_dim,
                                            alpha=self.alpha),
                       optimizer=optm,
-                      metrics=['accuracy'])
+                      metrics=['accuracy', self.count_nonzero, self.check_nonzero])
         model.summary()
         return model
