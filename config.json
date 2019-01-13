@@ -1,5 +1,5 @@
 {
-    "alpha": 0.2,
+    "alpha": 0.5,
     "embd_dim": 128,
-    "lr": 1e-3
+    "lr": 1e-4
 }
