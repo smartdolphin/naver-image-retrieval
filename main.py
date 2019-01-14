@@ -27,7 +27,7 @@ from misc import Option
 opt = Option('./config.json')
 
 
-def bind_model(model):
+def bind_model(model, batch_size):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
         model.save_weights(os.path.join(dir_name, 'model'))
@@ -65,7 +65,14 @@ def bind_model(model):
 
         # inference
         query_vecs = get_feature_layer([query_img, 0])[0]
-        reference_vecs = get_feature_layer([reference_img, 0])[0]
+        n_epoch =  reference_img.shape[0] // batch_size
+        reference_vecs = np.zeros([0, opt.embd_dim])
+        offset = 0
+
+        for i in range(n_epoch):
+            reference_img_batch = reference_img[offset:offset+batch_size]
+            reference_vecs = np.concatenate([reference_vecs, get_feature_layer([reference_img_batch, 0])[0]])
+            offset += batch_size
 
         # l2 normalization
         query_vecs = l2_normalize(query_vecs)
@@ -180,7 +187,7 @@ if __name__ == '__main__':
 
     """ Model """
     model = get_model('triplet', 224, num_classes)
-    bind_model(model)
+    bind_model(model, config.batch_size)
 
     if config.pause:
         nsml.paused(scope=locals())
