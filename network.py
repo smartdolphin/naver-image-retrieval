@@ -35,7 +35,7 @@ class Triplet:
         # compute loss
         basic_loss = pos_dist - neg_dist + alpha
         loss = K.maximum(basic_loss, 0.0)
-        return loss
+        return K.mean(loss)
 
     def count_nonzero(self, y_true, y_pred):
         """
