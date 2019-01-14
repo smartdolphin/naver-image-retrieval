@@ -23,6 +23,8 @@ from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import triplet_data_loader
 from network import get_model
+from misc import Option
+opt = Option('./config.json')
 
 
 def bind_model(model):
@@ -148,7 +150,7 @@ def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
             n[i] = ds['a'][data_inds[negative_idx][0]]
 
         X = [a] + [p] + [n]
-        Y = np.zeros((len(batch_inds), 128*3))
+        Y = np.zeros((len(batch_inds), opt.embd_dim * 3))
         yield X, Y
         left = right
         if right == limit:
