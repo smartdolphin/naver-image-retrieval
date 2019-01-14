@@ -3,7 +3,7 @@ import keras
 import keras.backend as K
 from keras.models import Model
 from keras.layers import Dense, Lambda, Input, concatenate, Flatten
-from keras.applications.resnet50 import ResNet50
+from keras.applications.mobilenet_v2 import MobileNetV2
 from misc import Option, wrapped_partial
 opt = Option('./config.json')
 
@@ -57,11 +57,11 @@ class Triplet:
         p = Input(shape=shape)
         n = Input(shape=shape)
 
-        resnet = ResNet50(include_top=False, weights=None, input_shape=shape, pooling='avg')
-        net = resnet.output
+        mobilenet = MobileNetV2(include_top=False, weights=None, input_shape=shape, pooling='avg')
+        net = mobilenet.output
         net = Dense(self.embd_dim, activation='linear')(net)
         net = Lambda(lambda x: K.l2_normalize(x, axis=-1))(net)
-        base_model = Model(resnet.input, net, name='resnet50')
+        base_model = Model(mobilenet.input, net, name='mobilenet_v2')
 
         a_emb = base_model(a)
         p_emb = base_model(p)
