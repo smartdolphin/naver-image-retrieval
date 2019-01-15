@@ -42,14 +42,26 @@ class Triplet:
         Custom metric
         Returns count of nonzero embeddings
         """
-        return(tf.count_nonzero(y_pred))
+        return tf.count_nonzero(y_pred)
 
     def check_nonzero(self, y_true, y_pred):
         """
         Custom metric
         Returns sum of all embeddings
         """
-        return(K.sum(y_pred))
+        return K.sum(y_pred)
+
+    def pos_dist(self, y_true, y_pred, embd_dim=128):
+        anchor = y_pred[:,0:embd_dim]
+        positive = y_pred[:,embd_dim:embd_dim*2]
+        pos_dist = K.sum(K.square(anchor - positive), axis=1)
+        return pos_dist
+
+    def neg_dist(self, y_true, y_pred, embd_dim=128):
+        anchor = y_pred[:,0:embd_dim]
+        negative = y_pred[:,embd_dim*2:embd_dim*3]
+        neg_dist = K.sum(K.square(anchor - negative), axis=1)
+        return neg_dist
 
     def get_model(self, img_size, num_classes):
         shape = (img_size, img_size, 3)
@@ -75,6 +87,6 @@ class Triplet:
                                            embd_dim=self.embd_dim,
                                            alpha=self.alpha),
                       optimizer=optm,
-                      metrics=['accuracy', self.count_nonzero, self.check_nonzero])
+                      metrics=['accuracy', self.pos_dist, self.neg_dist])
         model.summary()
         return model
