@@ -69,7 +69,7 @@ class Triplet:
         p = Input(shape=shape)
         n = Input(shape=shape)
 
-        mobilenet = MobileNetV2(include_top=False, weights=None, input_shape=shape, pooling='avg')
+        mobilenet = MobileNetV2(include_top=False, weights='imagenet', input_shape=shape, pooling='avg')
         net = mobilenet.output
         net = Dense(self.embd_dim, activation='linear')(net)
         net = Lambda(lambda x: K.l2_normalize(x, axis=-1))(net)
