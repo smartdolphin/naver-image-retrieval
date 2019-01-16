@@ -62,7 +62,7 @@ def bind_model(model, batch_size):
         reference_img /= 255
 
         get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()],
-                                       [mobel.layers[-1].output])
+                                       [model.layers[-1].output])
 
         print('inference start')
 
@@ -81,8 +81,16 @@ def bind_model(model, batch_size):
         query_vecs = l2_normalize(query_vecs)
         reference_vecs = l2_normalize(reference_vecs)
 
-        # Calculate cosine similarity
-        sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        if opt.infer_dist == 'cos':
+            # Calculate cosine similarity
+            sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        elif opt.infer_dist == 'l2':
+            # l2 distance
+            sim_matrix = []
+            for query_vec in query_vecs:
+                dist = np.sum(np.absolute(query_vec - reference_vecs), axis=1)
+                sim_matrix.append(dist)
+            sim_matrix = np.array(sim_matrix)
 
         retrieval_results = {}
 
