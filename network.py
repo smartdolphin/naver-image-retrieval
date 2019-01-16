@@ -4,22 +4,51 @@ import keras.backend as K
 from keras.models import Model
 from keras.layers import Dense, Lambda, Input, concatenate, Flatten
 from keras.applications.mobilenet_v2 import MobileNetV2
+from keras.applications.vgg16 import VGG16
+from keras.applications.resnet50 import ResNet50
 from misc import Option, wrapped_partial
 opt = Option('./config.json')
 
 
-def get_model(target_model, img_size, num_classes):
+def get_model(target_model, img_size, num_classes, base_model_name=None):
+    shape = (img_size, img_size, 3)
+
+    if base_model_name == 'mobilenet_v2':
+        base_model = MobileNetV2(classes=num_classes,
+                                 include_top=False,
+                                 weights='imagenet',
+                                 input_shape=shape,
+                                 pooling='avg')
+    elif base_model_name == 'vgg16':
+        base_model = VGG16(classes=num_classes,
+                           include_top=False,
+                           weights=None,
+                           input_shape=shape,
+                           pooling='avg')
+    elif base_model_name == 'resnet50':
+        base_model = ResNet50(classes=num_classes,
+                              include_top=False,
+                              weights='imagenet',
+                              input_shape=shape,
+                              pooling='avg')
+    else:
+        assert base_model is not None
+
     if target_model == 'triplet':
-        model = Triplet().get_model(img_size, num_classes)
+        embd_net = Dense(opt.embd_dim, activation='linear')(base_model.output)
+        model = Triplet(base_model, embd_net).get_model(img_size, num_classes)
     else:
         raise Exception('Unknown model: {}'.format(target_model))
-    return model
+    return model, base_model, embd_net
 
 
 class Triplet:
-    def __init__(self):
+    def __init__(self, base_model, embd_net):
+        self.base_model = base_model
+        self.embd_net = embd_net
         self.alpha = opt.alpha
         self.embd_dim = opt.embd_dim
+        print('alpha: ', self.alpha)
 
     def triplet_loss(self, y_true, y_pred, embd_dim=128, alpha=0.2):
         anchor = y_pred[:,0:embd_dim]
@@ -69,11 +98,8 @@ class Triplet:
         p = Input(shape=shape)
         n = Input(shape=shape)
 
-        mobilenet = MobileNetV2(include_top=False, weights='imagenet', input_shape=shape, pooling='avg')
-        net = mobilenet.output
-        net = Dense(self.embd_dim, activation='linear')(net)
-        net = Lambda(lambda x: K.l2_normalize(x, axis=-1))(net)
-        base_model = Model(mobilenet.input, net, name='mobilenet_v2')
+        net = Lambda(lambda x: K.l2_normalize(x, axis=-1))(self.embd_net)
+        base_model = Model(self.base_model.input, net, name=self.base_model.name)
 
         a_emb = base_model(a)
         p_emb = base_model(p)

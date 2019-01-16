@@ -1,5 +1,11 @@
 {
-    "alpha": 1.0,
-    "embd_dim": 128,
+    "alpha": 3.0,
+    "embd_dim": 256,
+    "base_model": "resnet50",
+    "pretrain_test_split": 0.0,
+    "pretrain_batch_size": 128,
+    "pretrain_n_epoch": 20,
+    "pretrain_lr": 0.005,
+    "num_gpus": 1,
     "lr": 1e-4
 }

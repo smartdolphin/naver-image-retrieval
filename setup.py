@@ -9,6 +9,7 @@ setup(
     install_requires=[
         'tqdm',
         'pandas',
-        'scikit-image'
+        'scikit-image',
+        'sklearn'
     ]
 )
