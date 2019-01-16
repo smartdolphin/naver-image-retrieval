@@ -19,12 +19,13 @@ import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
 from keras.layers import Conv2D, MaxPooling2D
-from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import ReduceLROnPlateau, LearningRateScheduler
 from keras import backend as K
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import train_test_split
 from data_loader import triplet_data_loader
 from network import get_model
+from util import lr_schedule
 from misc import Option, ModelMGPU
 opt = Option('./config.json')
 
@@ -264,13 +265,13 @@ if __name__ == '__main__':
             y_test = keras.utils.to_categorical(y_test, num_classes=num_classes)
 
         """ Callback """
-        monitor = 'acc'
-        callbacks = [ReduceLROnPlateau(monitor=monitor, patience=3)]
-
+        lr_scheduler = LearningRateScheduler(lr_schedule)
+        reduce_lr = ReduceLROnPlateau(factor=np.sqrt(0.1), patience=5)
+        callbacks = [reduce_lr, lr_scheduler]
 
         """ Pre-training base model first """
         if base_model is not None:
-            optm = keras.optimizers.Nadam(opt.pretrain_lr)
+            optm = keras.optimizers.Adam(lr_schedule(0))
             net = keras.layers.Dense(num_classes, activation='softmax')(base_model.output)
             pretrain = keras.models.Model(inputs=[base_model.input], outputs=net)
             if opt.num_gpus > 1:
