@@ -138,7 +138,7 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
-def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
+def get_sample_generator(ds, batch_size, img_shape, model, hard=False, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
     data_inds = []
     for label in set(ds['y'].value):
@@ -164,7 +164,14 @@ def get_sample_generator(ds, batch_size, img_shape, raise_stop_event=False):
         for i, batch_idx in enumerate(batch_inds):
             _y = y_inds[batch_idx]
             mask = np.array(y_inds) == _y
-            negative_idx = np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0]
+            if hard:
+                a_idx = data_inds[batch_idx][0]
+                emb_mat = model.predict(ds['a'][a_idx],
+                                        batch_size=opt.pretrain_batch_size)
+                scores = emb_mat @ emb_mat.T
+                negative_idx = np.ma.array(scores[_y], mask=mask).argmax()
+            else:
+                negative_idx = np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0]
             n[i] = ds['a'][data_inds[negative_idx][0]]
 
         X = [a] + [p] + [n]
@@ -246,7 +253,9 @@ if __name__ == '__main__':
 
         train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
                                          batch_size=batch_size,
-                                         img_shape=input_shape)
+                                         img_shape=input_shape,
+                                         model=base_model,
+                                         hard=True)
         steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
 
         dev_size = dev['a'].shape[0]
