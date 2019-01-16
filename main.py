@@ -29,7 +29,7 @@ from misc import Option, ModelMGPU
 opt = Option('./config.json')
 
 
-def bind_model(model, embd_net, batch_size):
+def bind_model(model, batch_size):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
         model.save_weights(os.path.join(dir_name, 'model'))
@@ -61,7 +61,7 @@ def bind_model(model, embd_net, batch_size):
         reference_img /= 255
 
         get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()],
-                                       [embd_net])
+                                       [mobel.layers[-1].output])
 
         print('inference start')
 
@@ -188,8 +188,8 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     """ Model """
-    model, base_model, embd_net = get_model('triplet', 224, num_classes, opt.base_model)
-    bind_model(base_model, embd_net, config.batch_size)
+    model, base_model = get_model('triplet', 224, num_classes, opt.base_model)
+    bind_model(base_model, config.batch_size)
 
     if config.pause:
         nsml.paused(scope=locals())
@@ -271,7 +271,7 @@ if __name__ == '__main__':
         """ Pre-training base model first """
         if base_model is not None:
             optm = keras.optimizers.Nadam(opt.pretrain_lr)
-            net = keras.layers.Dense(num_classes, activation='softmax')(embd_net)
+            net = keras.layers.Dense(num_classes, activation='softmax')(base_model.output)
             pretrain = keras.models.Model(inputs=[base_model.input], outputs=net)
             if opt.num_gpus > 1:
                 pretrain = ModelMGPU(pretrain, gpus=opt.num_gpus)
@@ -288,7 +288,7 @@ if __name__ == '__main__':
                                                fill_mode='nearest')
             train_generator = train_datagen.flow(x_train, y_train, batch_size=opt.pretrain_batch_size)
             pretrain_steps_per_epoch = int(np.ceil(x_train.shape[0] / float(opt.pretrain_batch_size)))
-            if x_test.size == 0:
+            if x_test.size != 0:
                 test_datagen = ImageDataGenerator()
                 test_generator = test_datagen.flow(x_test, y_test, batch_size=opt.pretrain_batch_size)
                 test_validation_steps = int(np.ceil(x_test.shape[0] / float(opt.pretrain_batch_size)))
@@ -296,8 +296,8 @@ if __name__ == '__main__':
             res = pretrain.fit_generator(train_generator,
                                          epochs=opt.pretrain_n_epoch,
                                          steps_per_epoch=pretrain_steps_per_epoch,
-                                         validation_data=test_generator if x_test.size == 0 else None,
-                                         validation_steps=test_validation_steps if x_test.size == 0 else None,
+                                         validation_data=test_generator if x_test.size != 0 else None,
+                                         validation_steps=test_validation_steps if x_test.size != 0 else None,
                                          shuffle=True,
                                          workers=4,
                                          callbacks=callbacks)

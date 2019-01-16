@@ -39,7 +39,7 @@ def get_model(target_model, img_size, num_classes, base_model_name=None):
         model = Triplet(base_model, embd_net).get_model(img_size, num_classes)
     else:
         raise Exception('Unknown model: {}'.format(target_model))
-    return model, base_model, embd_net
+    return model, Model(base_model.input, embd_net)
 
 
 class Triplet:
