@@ -138,7 +138,7 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
-def get_sample_generator(ds, batch_size, img_shape, model, hard=False, raise_stop_event=False):
+def get_sample_generator(ds, batch_size, img_shape, model=None, hard=False, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
     data_inds = []
     for label in set(ds['y'].value):
@@ -165,9 +165,8 @@ def get_sample_generator(ds, batch_size, img_shape, model, hard=False, raise_sto
             _y = y_inds[batch_idx]
             mask = np.array(y_inds) == _y
             if hard:
-                a_idx = data_inds[batch_idx][0]
-                emb_mat = model.predict(ds['a'][a_idx],
-                                        batch_size=opt.pretrain_batch_size)
+                inds = [a_idx for a_idx, _ in data_inds]
+                emb_mat = model.predict(ds['a'].value[inds], batch_size=opt.pretrain_batch_size)
                 scores = emb_mat @ emb_mat.T
                 negative_idx = np.ma.array(scores[_y], mask=mask).argmax()
             else:
