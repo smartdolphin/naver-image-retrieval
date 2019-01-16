@@ -302,12 +302,14 @@ if __name__ == '__main__':
                                          shuffle=True,
                                          workers=4,
                                          callbacks=callbacks)
+            nsml.save(0)
 
         """ Training loop """
         for epoch in range(nb_epoch):
             res = model.fit_generator(generator=train_gen,
                                       steps_per_epoch=steps_per_epoch,
-                                      epochs=1,
+                                      initial_epoch=epoch,
+                                      epochs=epoch + 1,
                                       validation_data=dev_gen if dev_size > 0 else None,
                                       validation_steps=validation_steps if dev_size > 0 else None,
                                       shuffle=True,
