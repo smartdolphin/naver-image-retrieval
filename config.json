@@ -1,4 +1,4 @@
-
+{
     "alpha": 3.0,
     "embd_dim": 256,
     "base_model": "resnet50",
