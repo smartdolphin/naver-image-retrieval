@@ -1,3 +1,4 @@
+import threading
 from keras import Model
 from keras.utils import multi_gpu_model
 from functools import partial, update_wrapper
@@ -82,3 +83,20 @@ def wrapped_partial(func, *args, **kwargs):
     partial_func = partial(func, *args, **kwargs)
     update_wrapper(partial_func, func)
     return partial_func
+
+
+class ThreadsafeIter(object):
+    def __init__(self, it):
+        self._it = it
+        self._lock = threading.Lock()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with self._lock:
+            return next(self._it)
+
+    def next(self):
+        with self._lock:
+            return self._it.next()

@@ -13,8 +13,10 @@ import pickle
 import itertools
 import nsml
 import numpy as np
+import tqdm
 
 from nsml import DATASET_PATH
+import tensorflow as tf
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
@@ -23,10 +25,10 @@ from keras.callbacks import ReduceLROnPlateau, LearningRateScheduler
 from keras import backend as K
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import train_test_split
-from data_loader import triplet_data_loader
+from data_loader import train_data_loader
 from network import get_model
 from util import lr_schedule
-from misc import Option, ModelMGPU
+from misc import Option, ModelMGPU, ThreadsafeIter
 opt = Option('./config.json')
 
 
@@ -141,12 +143,17 @@ def preprocess(queries, db):
 def get_sample_generator(ds, batch_size, img_shape, model=None, hard=False, raise_stop_event=False):
     left, limit = 0, ds['a'].shape[0]
     data_inds = []
-    for label in set(ds['y'].value):
-        y_set = ds['y'][ds['y'].value == label]
+    for label in set(ds['y']):
+        y_set = ds['y'][ds['y'] == label]
         for a_idx, p_idx in itertools.permutations(y_set, 2):
             data_inds.append((a_idx, p_idx))
     np.random.shuffle(data_inds)
     y_inds = [ds['y'][a_idx] for a_idx, _ in data_inds]
+    a_inds = [a_idx for a_idx, _ in data_inds]
+    n_epoch =  len(data_inds) // batch_size
+    if len(data_inds) % batch_size > 0:
+        n_epoch += 1
+    is_first_step = True
 
     while True:
         right = min(left + batch_size, limit)
@@ -161,14 +168,22 @@ def get_sample_generator(ds, batch_size, img_shape, model=None, hard=False, rais
             a[i] = ds['a'][a_idx]
             p[i] = ds['a'][p_idx]
 
+        if hard and is_first_step:
+            is_first_step = False
+            with tf.device('/cpu:0'):
+                emb_mat = np.zeros([0, opt.embd_dim])
+                offset = 0
+                for i in tqdm.trange(n_epoch):
+                    tmp = ds['a'][a_inds][offset:offset+batch_size]
+                    emb_mat = np.concatenate([emb_mat, model([tmp, 0])[0]])
+                    offset += batch_size
+                scores = emb_mat @ emb_mat.T
+
         for i, batch_idx in enumerate(batch_inds):
             _y = y_inds[batch_idx]
             mask = np.array(y_inds) == _y
             if hard:
-                inds = [a_idx for a_idx, _ in data_inds]
-                emb_mat = model.predict(ds['a'].value[inds], batch_size=opt.pretrain_batch_size)
-                scores = emb_mat @ emb_mat.T
-                negative_idx = np.ma.array(scores[_y], mask=mask).argmax()
+                negative_idx = np.ma.array(scores[a_inds[batch_idx]], mask=mask).argmax()
             else:
                 negative_idx = np.random.choice(np.where(np.logical_not(mask))[0], size=1)[0]
             n[i] = ds['a'][data_inds[negative_idx][0]]
@@ -179,6 +194,7 @@ def get_sample_generator(ds, batch_size, img_shape, model=None, hard=False, rais
         left = right
         if right == limit:
             left = 0
+            is_first_step = True
             if raise_stop_event:
                 raise StopIteration
 
@@ -205,6 +221,8 @@ if __name__ == '__main__':
     """ Model """
     model, base_model = get_model('triplet', 224, num_classes, opt.base_model)
     bind_model(base_model, config.batch_size)
+    get_feature_layer = K.function([base_model.layers[0].input] + [K.learning_phase()],
+                                   [base_model.layers[-1].output])
 
     if config.pause:
         nsml.paused(scope=locals())
@@ -215,70 +233,49 @@ if __name__ == '__main__':
 
         """ Load data """
         print('dataset path', DATASET_PATH)
-        output_path = './data.h5py'
+        output_path = ['./img_list.pkl', './label_list.pkl']
         train_dataset_path = os.path.join(DATASET_PATH, 'train/train_data')
 
         if nsml.IS_ON_NSML:
             # Caching file
-            nsml.cache(triplet_data_loader,
+            nsml.cache(train_data_loader,
                        data_path=train_dataset_path,
                        img_size=input_shape[:2],
-                       output_path=output_path,
-                       num_classes=num_classes,
-                       train_ratio=1.0)
+                       output_path=output_path)
         else:
-            # local에서 실험할경우 dataset의 local-path 를 입력해주세요
-            if os.path.exists(output_path) is False:
-                triplet_data_loader(train_dataset_path,
-                                    input_shape[:2],
-                                    output_path=output_path,
-                                    num_classes=num_classes,
-                                    train_ratio=1.0)
+            if not os.path.exists(output_path[0]) or \
+               not os.path.exists(output_path[1]):
+                # local에서 실험할경우 dataset의 local-path 를 입력해주세요
+                train_data_loader(train_dataset_path,
+                                  input_shape[:2],
+                                  output_path)
 
-        """ Prepare train/val data  """
-        data = h5py.File(output_path, 'r')
-        train = data['train']
-        dev = data['dev']
+        with open(output_path[0], 'rb') as img_f:
+            img_list = pickle.load(img_f)
+        with open(output_path[1], 'rb') as label_f:
+            label_list = pickle.load(label_f)
 
-        train_size = train['a'].shape[0]
-        a_train = train['a'].value.reshape(train_size, 224, 224, 3)
+        a_train = np.asarray(img_list)
+        labels = np.asarray(label_list)
+        a_train = a_train.astype('float32')
         a_train /= 255
-
+        train_size = a_train.shape[0]
+        train_gen = ThreadsafeIter(get_sample_generator({'a': a_train, 'y': labels},
+                                                        batch_size=batch_size,
+                                                        img_shape=input_shape,
+                                                        model=get_feature_layer,
+                                                        hard=True))
         total_train_samples = 0
-        for label in set(train['y'].value):
-            y_set = train['y'][train['y'].value == label]
+        for label in set(labels):
+            y_set = labels[labels == label]
             total_train_samples += len(list(itertools.permutations(y_set, 2)))
         print(train_size, 'train samples > ', total_train_samples)
-
-        train_gen = get_sample_generator({'a': a_train, 'y': train['y']},
-                                         batch_size=batch_size,
-                                         img_shape=input_shape,
-                                         model=base_model,
-                                         hard=True)
         steps_per_epoch = int(np.ceil(total_train_samples / float(batch_size)))
 
-        dev_size = dev['a'].shape[0]
-        a_dev = dev['a'].value.reshape(dev_size, 224, 224, 3)
-        a_dev /= 255
-
-        total_dev_samples = 0
-        for label in set(dev['y'].value):
-            y_set = dev['y'][dev['y'].value == label]
-            total_dev_samples += len(list(itertools.permutations(y_set, 2)))
-        print(dev_size, 'dev samples > ', total_dev_samples)
-
-        dev_gen = get_sample_generator({'a': a_dev, 'y': dev['y']},
-                                       batch_size=batch_size,
-                                       img_shape=input_shape)
-        validation_steps = int(np.ceil(total_dev_samples / float(batch_size)))
-
         """ Pre-training data """
-        x_train, x_test, y_train, y_test = train_test_split(a_train, train['y'].value,
+        x_train, x_test, y_train, y_test = train_test_split(a_train, labels,
                                                             test_size=opt.pretrain_test_split,
                                                             random_state=0)
-        y_train = keras.utils.to_categorical(y_train, num_classes=num_classes)
-        if x_test is not []:
-            y_test = keras.utils.to_categorical(y_test, num_classes=num_classes)
 
         """ Callback """
         lr_scheduler = LearningRateScheduler(lr_schedule)
@@ -287,6 +284,22 @@ if __name__ == '__main__':
 
         """ Pre-training base model first """
         if base_model is not None:
+            train_datagen = ImageDataGenerator(rotation_range=40,
+                                               width_shift_range=0.2,
+                                               height_shift_range=0.2,
+                                               shear_range=0.2,
+                                               zoom_range=0.2,
+                                               horizontal_flip=True,
+                                               fill_mode='nearest')
+            train_generator = train_datagen.flow(x_train, y_train, batch_size=opt.pretrain_batch_size)
+            train_generator = ThreadsafeIter(train_generator)
+            pretrain_steps_per_epoch = int(np.ceil(x_train.shape[0] / float(opt.pretrain_batch_size)))
+            if x_test.size != 0:
+                test_datagen = ImageDataGenerator()
+                test_generator = test_datagen.flow(x_test, y_test, batch_size=opt.pretrain_batch_size)
+                test_generator = ThreadsafeIter(test_generator)
+                test_validation_steps = int(np.ceil(x_test.shape[0] / float(opt.pretrain_batch_size)))
+
             optm = keras.optimizers.Adam(lr_schedule(0))
             net = keras.layers.Dense(num_classes, activation='softmax')(base_model.output)
             pretrain = keras.models.Model(inputs=[base_model.input], outputs=net)
@@ -296,20 +309,6 @@ if __name__ == '__main__':
                              optimizer=optm,
                              metrics=['accuracy'])
             pretrain.summary()
-            train_datagen = ImageDataGenerator(rotation_range=40,
-                                               width_shift_range=0.2,
-                                               height_shift_range=0.2,
-                                               shear_range=0.2,
-                                               zoom_range=0.2,
-                                               horizontal_flip=True,
-                                               fill_mode='nearest')
-            train_generator = train_datagen.flow(x_train, y_train, batch_size=opt.pretrain_batch_size)
-            pretrain_steps_per_epoch = int(np.ceil(x_train.shape[0] / float(opt.pretrain_batch_size)))
-            if x_test.size != 0:
-                test_datagen = ImageDataGenerator()
-                test_generator = test_datagen.flow(x_test, y_test, batch_size=opt.pretrain_batch_size)
-                test_validation_steps = int(np.ceil(x_test.shape[0] / float(opt.pretrain_batch_size)))
-
             res = pretrain.fit_generator(train_generator,
                                          epochs=opt.pretrain_n_epoch,
                                          steps_per_epoch=pretrain_steps_per_epoch,
@@ -318,21 +317,18 @@ if __name__ == '__main__':
                                          shuffle=True,
                                          workers=4,
                                          callbacks=callbacks)
-            nsml.save(0)
 
-        callbacks = [reduce_lr]
+        callbacks = []
+
         """ Training loop """
         for epoch in range(nb_epoch):
             res = model.fit_generator(generator=train_gen,
                                       steps_per_epoch=steps_per_epoch,
                                       initial_epoch=epoch,
                                       epochs=epoch + 1,
-                                      validation_data=dev_gen if dev_size > 0 else None,
-                                      validation_steps=validation_steps if dev_size > 0 else None,
                                       shuffle=True,
                                       callbacks=callbacks)
             print(res.history)
             train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
             nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
             nsml.save(epoch)
-        data.close()
